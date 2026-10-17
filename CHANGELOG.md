@@ -23,12 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimize `div_rem`, `/` and `%` for numerators less than the divisor or that fit in a limb, and for power of two divisors ([#651])
 - Optimize `overflowing_mul` and the operations built on it for sizes up to 384 bits ([#653])
 - Optimize `widening_mul` ([#654])
+- Test for `Less` first in `cmp`, so callers that only check for `Less` skip the equality test ([#657])
 
 [#647]: https://github.com/alloy-rs/ruint/pull/647
 [#650]: https://github.com/alloy-rs/ruint/pull/650
 [#651]: https://github.com/alloy-rs/ruint/pull/651
 [#653]: https://github.com/alloy-rs/ruint/pull/653
 [#654]: https://github.com/alloy-rs/ruint/pull/654
+[#657]: https://github.com/alloy-rs/ruint/pull/657
 
 ### Fixed
 
