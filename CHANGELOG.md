@@ -20,9 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimize `mul_mod` for operands with nonzero high limbs ([#647])
 - Optimize `mul_mod` for a `2^BITS - 1` modulus ([#647])
 - Optimize `add_mod` for operands less than twice the modulus ([#650])
+- Optimize `div_rem`, `/` and `%` for numerators less than the divisor or that fit in a limb, and for power of two divisors ([#651])
 
 [#647]: https://github.com/alloy-rs/ruint/pull/647
 [#650]: https://github.com/alloy-rs/ruint/pull/650
+[#651]: https://github.com/alloy-rs/ruint/pull/651
 
 ### Fixed
 
