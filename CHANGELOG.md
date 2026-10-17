@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimize `overflowing_mul` and the operations built on it for sizes up to 384 bits ([#653])
 - Optimize `widening_mul` ([#654])
 - Test for `Less` first in `cmp`, so callers that only check for `Less` skip the equality test ([#657])
+- Optimize `wrapping_shl`, `wrapping_shr` and `arithmetic_shr` for three to eight limbs with branchless limb selects ([#658])
 
 [#647]: https://github.com/alloy-rs/ruint/pull/647
 [#650]: https://github.com/alloy-rs/ruint/pull/650
@@ -31,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#653]: https://github.com/alloy-rs/ruint/pull/653
 [#654]: https://github.com/alloy-rs/ruint/pull/654
 [#657]: https://github.com/alloy-rs/ruint/pull/657
+[#658]: https://github.com/alloy-rs/ruint/pull/658
 
 ### Fixed
 

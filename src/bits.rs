@@ -6,7 +6,7 @@ use core::ops::{
 
 /// Saturating `usize` → `u32` cast for shift amounts.
 ///
-/// The primitive fast paths (`LIMBS ∈ {1, 2, 4}`) feed `rhs` to
+/// The primitive fast paths (`LIMBS ∈ {1, 2}`) feed `rhs` to
 /// `unbounded_sh*`, which take a `u32`. A plain `rhs as u32` cast reduces shift
 /// amounts `>= 2^32` mod `2^32`, shifting by the wrong amount instead of
 /// shifting the whole value out. Saturating to `u32::MAX` keeps any such shift
@@ -16,6 +16,25 @@ use core::ops::{
 #[inline(always)]
 const fn shift_amount(rhs: usize) -> u32 {
     select_unpredictable_u32(rhs > u32::MAX as usize, u32::MAX, rhs as u32)
+}
+
+/// Returns the high limb of `(hi:lo) << s`, for `s < 64`.
+#[inline(always)]
+const fn funnel_shl(hi: u64, lo: u64, s: u32) -> u64 {
+    ((((hi as u128) << 64) | lo as u128) << s >> 64) as u64
+}
+
+/// Returns the low limb of `(hi:lo) >> s`, for `s < 64`.
+#[inline(always)]
+const fn funnel_shr(hi: u64, lo: u64, s: u32) -> u64 {
+    ((((hi as u128) << 64) | lo as u128) >> s) as u64
+}
+
+/// Branchless `if c { a } else { b }`, which compiles to a conditional move.
+#[inline(always)]
+const fn select(c: bool, a: u64, b: u64) -> u64 {
+    let mask = 0u64.wrapping_sub(c as u64);
+    (a & mask) | (b & !mask)
 }
 
 impl<const BITS: usize, const LIMBS: usize> Uint<BITS, LIMBS> {
@@ -462,6 +481,9 @@ impl<const BITS: usize, const LIMBS: usize> Uint<BITS, LIMBS> {
     #[inline(always)]
     #[must_use]
     pub const fn wrapping_shl(self, rhs: usize) -> Self {
+        if Self::SHIFT_SELECT {
+            return self.shl_select(rhs);
+        }
         as_primitives!(self; {
             u64(x) => {
                 let mut r = Self::ZERO;
@@ -474,23 +496,6 @@ impl<const BITS: usize, const LIMBS: usize> Uint<BITS, LIMBS> {
                 out.limbs[0] = r as u64;
                 out.limbs[1] = (r >> 64) as u64;
                 return out.masked();
-            },
-            u256((lo, hi)) => {
-                let rhs = shift_amount(rhs);
-                // Compute as if rhs < 128.
-                let new_lo = lo.unbounded_shl(rhs);
-                let new_hi = hi.unbounded_shl(rhs) | lo.unbounded_shr(128u32.wrapping_sub(rhs));
-                // If rhs >= 128, lo becomes 0 and hi becomes lo << (rhs - 128).
-                let cross = lo.unbounded_shl(rhs.wrapping_sub(128));
-                let mask = 0u128.wrapping_sub((rhs < 128) as u128);
-                let lo = new_lo & mask;
-                let hi = (new_hi & mask) | (cross & !mask);
-                let mut r = Self::ZERO;
-                r.limbs[0] = lo as u64;
-                r.limbs[1] = (lo >> 64) as u64;
-                r.limbs[2] = hi as u64;
-                r.limbs[3] = (hi >> 64) as u64;
-                return r.masked();
             },
         });
 
@@ -603,6 +608,9 @@ impl<const BITS: usize, const LIMBS: usize> Uint<BITS, LIMBS> {
     #[inline(always)]
     #[must_use]
     pub const fn wrapping_shr(self, rhs: usize) -> Self {
+        if Self::SHIFT_SELECT {
+            return self.shr_select(rhs, 0);
+        }
         as_primitives!(self; {
             u64(x) => {
                 let mut r = Self::ZERO;
@@ -616,23 +624,6 @@ impl<const BITS: usize, const LIMBS: usize> Uint<BITS, LIMBS> {
                 out.limbs[1] = (r >> 64) as u64;
                 return out;
             },
-            u256((lo, hi)) => {
-                let rhs = shift_amount(rhs);
-                // Compute as if rhs < 128.
-                let new_hi = hi.unbounded_shr(rhs);
-                let new_lo = lo.unbounded_shr(rhs) | hi.unbounded_shl(128u32.wrapping_sub(rhs));
-                // If rhs >= 128, hi becomes 0 and lo becomes hi >> (rhs - 128).
-                let cross = hi.unbounded_shr(rhs.wrapping_sub(128));
-                let mask = 0u128.wrapping_sub((rhs < 128) as u128);
-                let hi = new_hi & mask;
-                let lo = (new_lo & mask) | (cross & !mask);
-                let mut r = Self::ZERO;
-                r.limbs[0] = lo as u64;
-                r.limbs[1] = (lo >> 64) as u64;
-                r.limbs[2] = hi as u64;
-                r.limbs[3] = (hi >> 64) as u64;
-                return r;
-            },
         });
 
         self.overflowing_shr(rhs).0
@@ -644,6 +635,15 @@ impl<const BITS: usize, const LIMBS: usize> Uint<BITS, LIMBS> {
     pub const fn arithmetic_shr(self, rhs: usize) -> Self {
         if BITS == 0 {
             return Self::ZERO;
+        }
+        if Self::SHIFT_SELECT {
+            // Sign-extend the top limb so the shift moves copies of the sign
+            // bit down, then clear the bits above `BITS` again.
+            let mut x = self;
+            let pad = (64 * LIMBS - BITS) as u32;
+            let top = ((x.limbs[LIMBS - 1] << pad) as i64 >> pad) as u64;
+            x.limbs[LIMBS - 1] = top;
+            return x.shr_select(rhs, ((top as i64) >> 63) as u64);
         }
         let sign = self.bit(BITS - 1);
         let mut r = self.wrapping_shr(rhs);
@@ -677,6 +677,77 @@ impl<const BITS: usize, const LIMBS: usize> Uint<BITS, LIMBS> {
         }
         let rhs = rhs % BITS;
         self.rotate_left(BITS - rhs)
+    }
+
+    /// Whether shifts use [`shl_select`](Self::shl_select) and
+    /// [`shr_select`](Self::shr_select). One and two limbs use primitive
+    /// shifts instead. The number of selects grows as `LIMBS * log2(LIMBS)`,
+    /// so larger sizes keep the loop in `overflowing_shl`: above eight limbs
+    /// on 64-bit targets, and above four on 32-bit targets.
+    const SHIFT_SELECT: bool =
+        LIMBS > 2 && (LIMBS <= 4 || cfg!(target_pointer_width = "64") && LIMBS <= 8);
+
+    /// Number of limb-moving stages in the select shifts.
+    const SHIFT_STAGES: usize = LIMBS.next_power_of_two().trailing_zeros() as usize;
+
+    /// Left shift by `rhs` bits.
+    ///
+    /// Shifts every limb by `rhs % 64` bits, then moves whole limbs by 1, 2,
+    /// 4, ... places as the bits of `rhs / 64` select, and finally clears
+    /// everything if `rhs >= BITS`. Each stage reads fixed limb indices, so
+    /// it compiles to funnel shifts and conditional moves with no branches.
+    ///
+    /// The loops run over limbs on the outside and stages on the inside,
+    /// keeping every stage's result: with stages on the outside, LLVM hoists
+    /// each stage's condition out of its limb loop and turns the selects into
+    /// branches.
+    #[inline(always)]
+    const fn shl_select(self, rhs: usize) -> Self {
+        let x = &self.limbs;
+        let s = (rhs % 64) as u32;
+        // `v[t][i]` is limb `i` after `t` stages. Eight limbs need three
+        // stages plus the final one.
+        let mut v = [[0; LIMBS]; 5];
+        const_range_for!(i in 0..LIMBS => {
+            let lo = if i > 0 { x[i - 1] } else { 0 };
+            v[0][i] = funnel_shl(x[i], lo, s);
+            const_range_for!(t in 0..Self::SHIFT_STAGES + 1 => {
+                let k = 1 << t;
+                let (c, from) = if t < Self::SHIFT_STAGES {
+                    ((rhs / 64) & k != 0, if i >= k { v[t][i - k] } else { 0 })
+                } else {
+                    (rhs >= BITS, 0)
+                };
+                v[t + 1][i] = select(c, from, v[t][i]);
+            });
+        });
+        Self::from_limbs_unmasked(v[Self::SHIFT_STAGES + 1])
+    }
+
+    /// Right shift by `rhs` bits that shifts in `fill` limbs from the top.
+    ///
+    /// See [`shl_select`](Self::shl_select) for how it works.
+    #[inline(always)]
+    const fn shr_select(self, rhs: usize, fill: u64) -> Self {
+        let x = &self.limbs;
+        let s = (rhs % 64) as u32;
+        let mut v = [[0; LIMBS]; 5];
+        let mut i = LIMBS;
+        while i > 0 {
+            i -= 1;
+            let hi = if i + 1 < LIMBS { x[i + 1] } else { fill };
+            v[0][i] = funnel_shr(hi, x[i], s);
+            const_range_for!(t in 0..Self::SHIFT_STAGES + 1 => {
+                let k = 1 << t;
+                let (c, from) = if t < Self::SHIFT_STAGES {
+                    ((rhs / 64) & k != 0, if i + k < LIMBS { v[t][i + k] } else { fill })
+                } else {
+                    (rhs >= BITS, fill)
+                };
+                v[t + 1][i] = select(c, from, v[t][i]);
+            });
+        }
+        Self::from_limbs_unmasked(v[Self::SHIFT_STAGES + 1])
     }
 }
 
@@ -1283,6 +1354,27 @@ mod tests {
                     n => min(BITS, n + shift)
                 });
             });
+        });
+    }
+
+    #[test]
+    fn test_select_shifts() {
+        const_for!(BITS in [129, 192, 193, 256, 320, 449, 512] {
+            const LIMBS: usize = nlimbs(BITS);
+            type U = Uint<BITS, LIMBS>;
+            proptest!(|(value: U, shift in 0..=BITS + 130)| {
+                assert_eq!(value.wrapping_shl(shift), value.overflowing_shl(shift).0);
+                assert_eq!(value.wrapping_shr(shift), value.overflowing_shr(shift).0);
+                let fill = if value.bit(BITS - 1) {
+                    U::MAX.overflowing_shl(BITS.saturating_sub(shift)).0
+                } else {
+                    U::ZERO
+                };
+                assert_eq!(value.arithmetic_shr(shift), value.overflowing_shr(shift).0 | fill);
+            });
+            assert_eq!(U::MAX.wrapping_shl(usize::MAX), U::ZERO);
+            assert_eq!(U::MAX.wrapping_shr(usize::MAX), U::ZERO);
+            assert_eq!(U::MAX.arithmetic_shr(usize::MAX), U::MAX);
         });
     }
 
