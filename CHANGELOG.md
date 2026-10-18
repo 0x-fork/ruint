@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimize `div_rem`, `/` and `%` for one- and two-limb divisors and for single-limb quotients ([#671])
 - Optimize `div_rem`, `/` and `%` with the `div` instruction on x86-64, a shorter reciprocal and a direct path for numerators one limb longer than the divisor ([#674])
 - Optimize `<<` and `>>` by a `Uint`, `overflowing_shl`, `overflowing_shr` and the operations built on them for three to eight limbs ([#675])
+- Optimize `pow` and the operations built on it for single-limb power of two bases ([#676])
 
 [#647]: https://github.com/alloy-rs/ruint/pull/647
 [#650]: https://github.com/alloy-rs/ruint/pull/650
@@ -41,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#671]: https://github.com/alloy-rs/ruint/pull/671
 [#674]: https://github.com/alloy-rs/ruint/pull/674
 [#675]: https://github.com/alloy-rs/ruint/pull/675
+[#676]: https://github.com/alloy-rs/ruint/pull/676
 
 ### Fixed
 

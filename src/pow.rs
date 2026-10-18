@@ -64,26 +64,32 @@ impl<const BITS: usize, const LIMBS: usize> Uint<BITS, LIMBS> {
     /// ```
     #[inline]
     #[must_use]
-    pub const fn overflowing_pow(mut self, mut exp: Self) -> (Self, bool) {
+    pub const fn overflowing_pow(self, exp: Self) -> (Self, bool) {
         if BITS == 0 {
             return (self, false);
         }
+        if self.is_small_power_of_two() {
+            return self.pow_power_of_two(exp);
+        }
 
-        // Exponentiation by squaring
+        // Exponentiation by squaring. Copies instead of `mut self` keep LLVM
+        // from copying `self` and `exp` in every step for large sizes.
+        let mut base = self;
+        let mut exp = exp;
         let mut overflow = false;
         let mut base_overflow = false;
         let mut result = Self::ONE;
         while !exp.const_is_zero() {
             // Multiply by base
             if exp.bit(0) {
-                let (r, o) = result.overflowing_mul(self);
+                let (r, o) = result.overflowing_mul(base);
                 result = r;
                 overflow |= o | base_overflow;
             }
 
             // Square base
-            let (s, o) = self.overflowing_mul(self);
-            self = s;
+            let (s, o) = base.overflowing_mul(base);
+            base = s;
             base_overflow |= o;
             exp = exp.wrapping_shr(1);
         }
@@ -114,6 +120,9 @@ impl<const BITS: usize, const LIMBS: usize> Uint<BITS, LIMBS> {
         if BITS == 0 {
             return self;
         }
+        if self.is_small_power_of_two() {
+            return self.pow_power_of_two(exp).0;
+        }
 
         // Exponentiation by squaring
         let mut result = Self::ONE;
@@ -128,6 +137,36 @@ impl<const BITS: usize, const LIMBS: usize> Uint<BITS, LIMBS> {
             exp = exp.wrapping_shr(1);
         }
         result
+    }
+
+    /// Whether `self` is a power of two below `2^64`, like the 256 and 2 that
+    /// most EVM `EXP` calls raise to a small power. Testing one limb keeps
+    /// the check cheap for other bases.
+    #[inline]
+    const fn is_small_power_of_two(&self) -> bool {
+        let mut high = 0;
+        const_range_for!(i in 1..LIMBS => {
+            high |= self.limbs[i];
+        });
+        high == 0 && self.limbs[0].is_power_of_two()
+    }
+
+    /// Raises `self = 2^k < 2^64` to the power of `exp` as a shift by
+    /// `k * exp`, and returns whether the result overflowed.
+    #[inline]
+    const fn pow_power_of_two(self, exp: Self) -> (Self, bool) {
+        // Exponents of `BITS` or more overflow for every base above one.
+        let mut high = 0;
+        const_range_for!(i in 1..LIMBS => {
+            high |= exp.limbs[i];
+        });
+        let exp = if high == 0 && exp.limbs[0] < BITS as u64 {
+            exp.limbs[0] as usize
+        } else {
+            BITS
+        };
+        let shift = exp.saturating_mul(self.limbs[0].trailing_zeros() as usize);
+        (Self::ONE.wrapping_shl(shift), shift >= BITS)
     }
 
     /// Construct from double precision binary logarithm.
@@ -224,6 +263,21 @@ mod tests {
             proptest!(|(e in 0..=BITS+1)| {
                 assert_eq!(U::from(2).pow(U::from(e)), U::from(1) << e);
             });
+            proptest!(|(k in 0..BITS, e in 0..=BITS+1, high: U)| {
+                let base = U::from(1) << k;
+                let expected = if k * e < BITS {
+                    (U::from(1) << (k * e), false)
+                } else {
+                    (U::ZERO, true)
+                };
+                assert_eq!(base.overflowing_pow(U::from(e)), expected);
+                assert_eq!(base.wrapping_pow(U::from(e)), expected.0);
+                // Exponents with high bits set overflow every base above one.
+                let e = U::from(e) | (high << 64);
+                if k > 0 && e >= U::from(BITS) {
+                    assert_eq!(base.overflowing_pow(e), (U::ZERO, true));
+                }
+            });
         });
     }
 
@@ -236,6 +290,8 @@ mod tests {
                 let b = U::from(b);
                 let prod = repeat_n(b, e).product::<U>();
                 assert_eq!(b.pow(U::from(e)), prod);
+                let overflow = repeat_n(b, e).try_fold(U::from(1), U::checked_mul).is_none();
+                assert_eq!(b.overflowing_pow(U::from(e)), (prod, overflow));
             });
         });
     }
