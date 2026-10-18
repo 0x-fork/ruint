@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Test for `Less` first in `cmp`, so callers that only check for `Less` skip the equality test ([#657])
 - Optimize `wrapping_shl`, `wrapping_shr` and `arithmetic_shr` for three to eight limbs with branchless limb selects ([#658])
 - Optimize `<`, `<=`, `>`, `>=` and `inv_mod` ([#669])
+- Optimize `div_rem`, `/` and `%` for one- and two-limb divisors and for single-limb quotients ([#671])
 
 [#647]: https://github.com/alloy-rs/ruint/pull/647
 [#650]: https://github.com/alloy-rs/ruint/pull/650
@@ -35,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#657]: https://github.com/alloy-rs/ruint/pull/657
 [#658]: https://github.com/alloy-rs/ruint/pull/658
 [#669]: https://github.com/alloy-rs/ruint/pull/669
+[#671]: https://github.com/alloy-rs/ruint/pull/671
 
 ### Fixed
 
