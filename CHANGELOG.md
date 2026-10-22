@@ -21,10 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Panic in `FromSql` for empty `JSONB` and for `JSON` and `JSONB` payloads of a single quote ([#687])
 - rkyv `ArchivedUint` validation accepting a top limb above the type's width; the `CheckBytes` impls of `ArchivedUint` and `ArchivedBits` now require `Source` instead of `Trace` for the context's error type, which can break generic code that bounds only on `Trace` ([#689])
 - rkyv conversions building a `Uint<BITS, LIMBS>` with mismatched `LIMBS` instead of failing to compile ([#689])
+- `rlp` `Decodable` for `Uint` accepting leading zeros, lists and the two-byte form of single bytes below `0x80` ([#686])
 
 [#681]: https://github.com/alloy-rs/ruint/pull/681
 [#683]: https://github.com/alloy-rs/ruint/pull/683
 [#684]: https://github.com/alloy-rs/ruint/pull/684
+[#686]: https://github.com/alloy-rs/ruint/pull/686
 [#687]: https://github.com/alloy-rs/ruint/pull/687
 [#688]: https://github.com/alloy-rs/ruint/pull/688
 [#689]: https://github.com/alloy-rs/ruint/pull/689
