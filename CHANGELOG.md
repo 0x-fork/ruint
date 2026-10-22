@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - rkyv `ArchivedUint` validation accepting a top limb above the type's width; the `CheckBytes` impls of `ArchivedUint` and `ArchivedBits` now require `Source` instead of `Trace` for the context's error type, which can break generic code that bounds only on `Trace` ([#689])
 - rkyv conversions building a `Uint<BITS, LIMBS>` with mismatched `LIMBS` instead of failing to compile ([#689])
 - `rlp` `Decodable` for `Uint` accepting leading zeros, lists and the two-byte form of single bytes below `0x80` ([#686])
+- Undefined behavior when extracting a `Uint` from a non-`int` Python object with the `pyo3` feature, which now raises `TypeError` ([#690])
+- Wrong `_PyLong_AsByteArray` call on Python 3.13 and later when extracting a `Uint` with the `pyo3` feature ([#690])
 
 [#681]: https://github.com/alloy-rs/ruint/pull/681
 [#683]: https://github.com/alloy-rs/ruint/pull/683
@@ -30,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#687]: https://github.com/alloy-rs/ruint/pull/687
 [#688]: https://github.com/alloy-rs/ruint/pull/688
 [#689]: https://github.com/alloy-rs/ruint/pull/689
+[#690]: https://github.com/alloy-rs/ruint/pull/690
 
 ## [1.21.0] - 2026-10-20
 
