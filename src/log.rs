@@ -113,7 +113,7 @@ impl<const BITS: usize, const LIMBS: usize> Uint<BITS, LIMBS> {
     #[inline]
     #[must_use]
     pub fn log10(self) -> usize {
-        self.log(Self::from(10))
+        self.checked_log10().expect("log10 of zero")
     }
 
     /// Returns the base 2 logarithm of the number, rounded down.
@@ -124,7 +124,7 @@ impl<const BITS: usize, const LIMBS: usize> Uint<BITS, LIMBS> {
     #[inline]
     #[must_use]
     pub fn log2(self) -> usize {
-        self.log(Self::from(2))
+        self.checked_log2().expect("log2 of zero")
     }
 
     /// Double precision logarithm.
@@ -213,6 +213,16 @@ mod tests {
         // BITS == 4: 10 fits, so the normal path is taken and boundaries hold.
         assert_eq!(Uint::<4, 1>::from(9u64).checked_log10(), Some(0));
         assert_eq!(Uint::<4, 1>::from(15u64).checked_log10(), Some(1));
+    }
+
+    #[test]
+    fn test_log_tiny_bits() {
+        assert_eq!(Uint::<1, 1>::from(1u64).log2(), 0);
+        assert_eq!(Uint::<1, 1>::from(1u64).log10(), 0);
+        assert_eq!(Uint::<2, 1>::from(3u64).log10(), 0);
+        assert_eq!(Uint::<3, 1>::from(7u64).log10(), 0);
+        assert_eq!(Uint::<4, 1>::from(9u64).log10(), 0);
+        assert_eq!(Uint::<4, 1>::from(15u64).log10(), 1);
     }
 
     #[test]
